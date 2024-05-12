@@ -1,78 +1,58 @@
 const std = @import("std");
-
-const Pos = packed struct(u6) {
-    hori: u3, // last 3 bits
-    vert: u3, // first 3 bits
-};
-
-const PieceType = enum(u3) {
-    Pawn = 0b0000,
-    Bishop = 0b0001,
-    Knight = 0b0010,
-    Rook = 0b0011,
-    Queen = 0b0100,
-    King = 0b0101,
-    DPawn = 0b0111, // Pawn that moved two spots as first move (en passant)
-    // DPawn = 0b1000, // Pawn that moved two spots as first move (en passant)
-    // URook = 0b1011, // Rook that hasnt moved yet (castling)
-    // UKing = 0b1101, // King that hasnt moved yet (castling)
-    // Maybe seperate the latter 3 behaviour to a seperate field
-};
-
-const Color = enum(u1) {
-    Black = 0b0,
-    White = 0b1,
-};
-
-const CastlingState = packed struct(u4) {
-    b_l_rook: bool,
-    b_r_rook: bool,
-    w_l_rook: bool,
-    w_r_rook: bool,
-};
-
-const Piece = packed struct(u10) {
-    pos: Pos, // last 6 bits
-    color: Color, // middle 1 bit
-    piece_type: PieceType, // first 3 bits
-};
-
-// castling_state: CastlingState, // first 4 bits
-
-// const LastMove = packed struct {
-//     piece_type: PieceType,
-//     color: Color,
-//     prev_pos: Pos,
-//     new_pos: Pos,
-// }
+const builtin = @import("builtin");
+const lib = @import("lib.zig");
+const chess = @import("chess.zig");
+const ansi = @import("ansi.zig");
 
 pub fn main() !void {
+    if (builtin.os.tag == .windows) {
+        const wkernel32 = std.os.windows.kernel32;
+        if (wkernel32.SetConsoleOutputCP(65001) == 0) {
+            std.debug.panic("Panicked when trying to set terminal to utf8: {s}", .{@tagName(wkernel32.GetLastError())});
+        }
+    }
     const stdout = std.io.getStdOut().writer();
 
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // defer _ = gpa.deinit();
     // const allocator = gpa.allocator();
 
-    var piece: u3 = @intFromEnum(PieceType.King);
-    var pos: u6 = @bitCast(Pos{ .hori = 1, .vert = 5 });
+    var gameboard = chess.Board.default();
+    gameboard.field = 0b11111111_11111111_00000000_00000000_00000000_10000000_01111111_11111111;
 
-    try stdout.print("{b:04} {b:06}\n", .{ piece, pos });
-    // Output of above: `101 101001`
-    // 101 is Piece.King
-    // first 3 bits 101 is equal to 5
-    // last 3 bits 001 is equal to 1
+    try print_board(stdout, gameboard, .Black);
+}
 
-    var new_pos_raw: u6 = pos | 0b101011;
-    var new_pos: Pos = @bitCast(new_pos_raw);
-    try stdout.print("{}\n", .{new_pos});
-
-    var pi = Piece{ .pos = @bitCast(pos), .color = .Black, .piece_type = @enumFromInt(piece) };
-    var pi_int: u10 = @bitCast(pi);
-    try stdout.print("{b:011}\n", .{pi_int});
-
-    var new_pi_int: u10 = pi_int | 0b111;
-    var new_pi: Piece = @bitCast(new_pi_int);
-    try stdout.print("{}\n", .{new_pi});
-
-    // validate a move by using xor and then (n & (n-1)) == 0
+pub fn print_board(writer: std.fs.File.Writer, board: chess.Board, perspective: chess.Color) !void {
+    const VERTI_CHARS = "12345678";
+    const field: u64 = if (perspective == .White) board.field else lib.reverse_u64(board.field);
+    var bitcount: usize = 0;
+    const col_coords = if (perspective == .White) "A B C D E F G H" else "H G F E D C B A";
+    try writer.print("{s} {s}  {s}\n", .{ ansi.GRAY, col_coords, ansi.RESET });
+    for (0..64) |idx| {
+        const row = idx % 8;
+        const col = idx / 8;
+        const shift: u6 = @intCast(idx);
+        const bit = (field >> shift) & 1;
+        const piece_idx = if (perspective == .White) bitcount else 31 - bitcount;
+        const piece = board.pieces[piece_idx];
+        const char = if (bit != 1) " " else switch (piece.piece_type) {
+            .Pawn, .DPawn => "♙",
+            .Knight => "♞",
+            .Bishop => "♝",
+            .Rook => "♜",
+            .Queen => "♛",
+            .King => "♚",
+            .None => unreachable,
+        };
+        const color = if (piece.color == .Black) "\x1b[30m" else "\x1b[97m";
+        const row_coord = VERTI_CHARS[if (perspective == .White) 7 - col else col];
+        if (row == 0) try writer.print("{s}{c}", .{ ansi.GRAY, row_coord });
+        const background = if ((row + col) % 2 == 0) ansi.WOOD else ansi.LIGHT_WOOD;
+        try writer.print("{s}{s}{s} {s}", .{ background, color, char, ansi.RESET });
+        if (row == 7) try writer.print("{s}{c}{s}\n", .{ ansi.GRAY, row_coord, ansi.RESET });
+        if (bit == 1) bitcount += 1;
+    }
+    try writer.print("{s} {s}  {s}\n", .{ ansi.GRAY, col_coords, ansi.RESET });
+    // try std.fmt.format(writer, "\n{s}\n", .{RESET});
 }
