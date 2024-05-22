@@ -19,7 +19,7 @@ pub fn main() !void {
 
     var gameboard = chess.Board.default();
     gameboard.field = 0b11111111_11111111_00000000_00000000_00000000_10000000_01111111_11111111;
-
+    try stdout.print("{b}\n", .{gameboard.to_bits()});
     try print_board(stdout, gameboard, .Black);
 }
 
